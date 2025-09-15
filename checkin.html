@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📲 Leitor de QR Code - Check-in</title>
+  <script src="https://rawgit.com/schmich/instascan-builds/master/instascan.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+      padding: 0;
+      margin: 0;
+      text-align: center;
+    }
+
+    .container {
+      max-width: 100%;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #2c3e50;
+      margin-top: 20px;
+    }
+
+    #preview {
+      width: 100%;
+      aspect-ratio: 4/3;
+      margin: 20px auto;
+      border: 2px dashed #3498db;
+      border-radius: 10px;
+      background: #ecf0f1;
+    }
+
+    #result {
+      margin: 20px auto;
+      padding: 20px;
+      max-width: 90%;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      display: none;
+    }
+
+    .success {
+      color: #27ae60;
+      font-weight: bold;
+    }
+
+    .error {
+      color: #e74c3c;
+      font-weight: bold;
+    }
+
+    button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 30px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 10px;
+    }
+
+    button:hover {
+      background: #2980b9;
+    }
+
+    .presence-log {
+      margin-top: 30px;
+      text-align: left;
+      max-width: 90%;
+      margin-left: auto;
+      margin-right: auto;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .presence-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>✅ Check-in do Evento</h1>
+    <p>Aponte a câmera para o QR Code do aluno</p>
+
+    <video id="preview" playsinline></video>
+
+    <div id="result"></div>
+
+    <button id="toggle-camera">⏸ Pausar Câmera</button>
+
+    <div class="presence-log">
+      <h3>📋 Presenças Registradas</h3>
+      <div id="presence-list">
+        <!-- Lista dinâmica -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let scanning = true;
+    let presenceList = JSON.parse(localStorage.getItem('presenceList')) || [];
+
+    function updatePresenceList() {
+      const listEl = document.getElementById('presence-list');
+      listEl.innerHTML = '';
+      presenceList.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'presence-item';
+        div.innerHTML = `<strong>${item.nome}</strong> - ${item.curso} <br>
+                        <small>${item.data_checkin} | ID: ${item.id}</small>`;
+        listEl.appendChild(div);
+      });
+    }
+
+    function showResult(message, isSuccess = true) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = message;
+      resultDiv.className = isSuccess ? 'success' : 'error';
+      resultDiv.style.display = 'block';
+
+      // Esconder após 3 segundos
+      setTimeout(() => {
+        resultDiv.style.display = 'none';
+      }, 3000);
+    }
+
+    // Iniciar scanner
+    let scanner = new Instascan.Scanner({ video: document.getElementById('preview') });
+
+    scanner.addListener('scan', function (content) {
+      if (!scanning) return;
+
+      try {
+        const aluno = JSON.parse(content);
+
+        // Verificar se já foi marcado
+        const jaRegistrado = presenceList.some(p => p.id === aluno.id);
+        if (jaRegistrado) {
+          showResult('⚠️ Aluno já registrado!', false);
+          return;
+        }
+
+        // Registrar presença
+        const registro = {
+          id: aluno.id,
+          nome: aluno.nome,
+          curso: aluno.curso,
+          email: aluno.email,
+          data_checkin: new Date().toLocaleString('pt-BR')
+        };
+
+        presenceList.push(registro);
+        localStorage.setItem('presenceList', JSON.stringify(presenceList));
+
+        // Feedback visual
+        showResult(`✅ Presença registrada: ${aluno.nome}`);
+
+        // Atualizar lista
+        updatePresenceList();
+
+        // ✅ AQUI VOCÊ INTEGRARIA COM SEU BACKEND:
+        /*
+        fetch('/api/checkin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(registro)
+        })
+        .then(response => response.json())
+        .then(data => console.log('Check-in salvo no servidor:', data))
+        .catch(err => console.error('Erro ao salvar no backend:', err));
+        */
+
+      } catch (e) {
+        showResult('❌ QR Code inválido!', false);
+        console.error(e);
+      }
+    });
+
+    Instascan.Camera.getCameras().then(function (cameras) {
+      if (cameras.length > 0) {
+        // Usa a câmera traseira (mais comum para QR)
+        const backCamera = cameras.find(c => c.name.includes('back')) || cameras[0];
+        scanner.start(backCamera);
+      } else {
+        showResult('❌ Nenhuma câmera encontrada!', false);
+      }
+    }).catch(function (e) {
+      console.error(e);
+      showResult('❌ Erro ao acessar câmera. Verifique as permissões.', false);
+    });
+
+    // Botão para pausar/iniciar câmera
+    document.getElementById('toggle-camera').addEventListener('click', function() {
+      scanning = !scanning;
+      this.textContent = scanning ? '⏸ Pausar Câmera' : '▶️ Retomar Câmera';
+    });
+
+    // Carregar lista inicial
+    updatePresenceList();
+  </script>
+
+</body>
+</html>
